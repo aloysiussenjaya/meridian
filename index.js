@@ -9,7 +9,8 @@ import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
-import { startPolling, stopPolling, sendMessage, notifyOutOfRange, isEnabled as telegramEnabled } from "./telegram.js";
+import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled } from "./telegram.js";
+import { generateBriefing } from "./briefing.js";
 
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
@@ -71,12 +72,15 @@ MANAGEMENT CYCLE
 
 1. get_my_positions — check all open positions.
 2. For each position:
-   - Call get_position_pnl to see current yield and PnL.
-   - Use your FULL AUTONOMY to decide: STAY, CLOSE, or CLOSE & REDEPLOY.
-   - BIAS: STAY is the default. Only close if there is a COMPELLING reason (yield died, pool collapsed, or extreme profit/loss).
-   - AVOID PAPER-HANDING: Do not close for tiny gains/losses.
-3. If you close any position: call get_wallet_balance and swap any remaining base tokens to SOL.
-4. Report your reasoning for every decision.
+   - Call get_position_pnl.
+   - Decide: STAY, CLOSE, or CLOSE & REDEPLOY.
+   - BIAS: STAY. Only close if yield died, pool collapsed, or extreme profit/loss.
+3. If closing: swap base tokens to SOL.
+
+REPORT FORMAT (Strictly follow this for each position):
+**[PAIR]** | Age: [X]m | Fees: $[X] | PnL: [X]%
+**Decision:** [STAY/CLOSE]
+**Reason:** [1 short sentence]
       `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel);
       mgmtReport = content;
     } catch (error) {
@@ -141,7 +145,20 @@ Summarize the current portfolio health, total fees earned, and performance of al
     }
   });
 
-  _cronTasks = [mgmtTask, screenTask, healthTask];
+  // Morning Briefing at 8:00 AM UTC+7 (1:00 AM UTC)
+  const briefingTask = cron.schedule(`0 1 * * *`, async () => {
+    log("cron", "Starting morning briefing");
+    try {
+      const briefing = await generateBriefing();
+      if (telegramEnabled()) {
+        await sendHTML(briefing);
+      }
+    } catch (error) {
+      log("cron_error", `Morning briefing failed: ${error.message}`);
+    }
+  });
+
+  _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask];
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
 }
 
@@ -289,6 +306,17 @@ if (isTTY) {
       sendMessage("Agent is busy right now — try again in a moment.").catch(() => {});
       return;
     }
+
+    if (text === "/briefing") {
+      try {
+        const briefing = await generateBriefing();
+        await sendHTML(briefing);
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      }
+      return;
+    }
+
     busy = true;
     try {
       log("telegram", `Incoming: ${text}`);
@@ -310,13 +338,12 @@ Commands:
   auto           Let the agent pick and deploy automatically
   /status        Refresh wallet + positions
   /candidates    Refresh top pool list
+  /briefing      Show morning briefing (last 24h)
   /learn         Study top LPers from the best current pool and save lessons
   /learn <addr>  Study top LPers from a specific pool address
   /thresholds    Show current screening thresholds + performance stats
   /evolve        Manually trigger threshold evolution from performance data
   /stop          Shut down
-
-Or just chat: "what do you think of pool #2?", "close all positions", etc.
 `);
 
   rl.prompt();
@@ -379,6 +406,14 @@ Or just chat: "what do you think of pool #2?", "close all positions", etc.
           console.log(`  ${p.pair.padEnd(16)} ${status}  fees: $${p.unclaimed_fees_usd}`);
         }
         console.log();
+      });
+      return;
+    }
+
+    if (input === "/briefing") {
+      await runBusy(async () => {
+        const briefing = await generateBriefing();
+        console.log(`\n${briefing.replace(/<[^>]*>/g, "")}\n`);
       });
       return;
     }

@@ -62,7 +62,7 @@ export async function sendMessage(text) {
   }
 }
 
-async function sendHTML(html) {
+export async function sendHTML(html) {
   if (!TOKEN || !chatId) return;
   try {
     const res = await fetch(`${BASE}/sendMessage`, {
@@ -82,6 +82,7 @@ async function sendHTML(html) {
     log("telegram_error", `sendHTML failed: ${e.message}`);
   }
 }
+
 
 // ─── Long polling ────────────────────────────────────────────────
 async function poll(onMessage) {

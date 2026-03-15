@@ -65,7 +65,7 @@ function startCronJobs() {
     if (_managementBusy || busy) return;
     _managementBusy = true;
     timers.managementLastRun = Date.now();
-    log("cron", "Starting management cycle");
+    log("cron", `Starting management cycle [model: ${config.llm.managementModel}]`);
     let mgmtReport = null;
     try {
       const { content } = await agentLoop(`
@@ -107,7 +107,7 @@ REPORT FORMAT (Strictly follow this for each position):
     if (_screeningBusy || busy) return;
     _screeningBusy = true;
     timers.screeningLastRun = Date.now();
-    log("cron", "Starting screening cycle");
+    log("cron", `Starting screening cycle [model: ${config.llm.screeningModel}]`);
     let screenReport = null;
     try {
       const { content } = await agentLoop(`

@@ -249,7 +249,7 @@ REPORT FORMAT (one per position):
             `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
             h ? `  holders: top_10_pct=${h.top_10_real_holders_pct ?? "?"}%, bundlers_pct=${h.bundlers_pct_in_top_100 ?? "?"}%, global_fees_sol=${h.global_fees_sol ?? "?"}` : `  holders: fetch failed`,
             momentum ? `  momentum: ${momentum}` : null,
-            n?.narrative ? `  narrative: ${n.narrative.slice(0, 120)}` : `  narrative: none`,
+            n?.narrative ? `  narrative: ${n.narrative.slice(0, 500)}` : `  narrative: none`,
             mem ? `  memory: ${mem}` : null,
           ].filter(Boolean);
 

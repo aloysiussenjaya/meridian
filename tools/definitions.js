@@ -1072,4 +1072,64 @@ Blacklisted tokens are filtered BEFORE the LLM even sees pool candidates.`,
       }
     }
   },
+
+  // ═══════════════════════════════════════════
+  //  HIVE MIND — collective intelligence
+  // ═══════════════════════════════════════════
+  {
+    type: "function",
+    function: {
+      name: "get_hive_pulse",
+      description: "Get global hive mind stats: total agents, active agents, aggregate lessons, win rate across the network. Use to gauge whether hive has enough data to trust (>= 5 active agents = meaningful).",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_hive_pool_consensus",
+      description: "Query the hive for per-pool consensus: weighted win rate, avg PnL, unique agents reporting. Returns null if hive disabled or no data. Use BEFORE deploying to a pool to see how other agents have fared.",
+      parameters: {
+        type: "object",
+        properties: {
+          pool_address: { type: "string", description: "Meteora pool address" }
+        },
+        required: ["pool_address"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_hive_lesson_consensus",
+      description: "Get the most-endorsed lessons across all hive agents, optionally filtered by tags. Use to surface collective wisdom that may not yet be in your local lessons.",
+      parameters: {
+        type: "object",
+        properties: {
+          tags: { type: "array", items: { type: "string" }, description: "Optional tag filter, e.g. ['oor', 'rugpull']" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_hive_pattern_consensus",
+      description: "Get best-performing strategy patterns (bin ranges, bin steps) by pool volatility bucket. Use to pick deploy parameters for a given volatility.",
+      parameters: {
+        type: "object",
+        properties: {
+          volatility: { type: "number", description: "Pool volatility score (0-10+)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_hive_threshold_consensus",
+      description: "Get median screening thresholds across all hive agents (minFeeActiveTvlRatio, minTvl, minVolume, minHolders, minMcap, stopLossPct, etc). Compare to your local config and consider update_config if you diverge significantly AND the hive has >= 5 agents. This is how you self-tune from collective experience.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
 ];

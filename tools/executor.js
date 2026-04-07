@@ -21,6 +21,14 @@ import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
 import { config, reloadScreeningThresholds } from "../config.js";
+import {
+  getHivePulse,
+  queryPoolConsensus as hivePoolConsensus,
+  queryLessonConsensus as hiveLessonConsensus,
+  queryPatternConsensus as hivePatternConsensus,
+  queryThresholdConsensus as hiveThresholdConsensus,
+  isEnabled as hiveEnabled,
+} from "../hive-mind.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -99,6 +107,47 @@ const toolMap = {
   block_deployer: blockDev,
   unblock_deployer: unblockDev,
   list_blocked_deployers: listBlockedDevs,
+  get_hive_pulse: async () => {
+    if (!hiveEnabled()) return { enabled: false, note: "Hive not configured — set hiveMindUrl and hiveMindApiKey in user-config.json" };
+    const pulse = await getHivePulse();
+    return pulse ?? { enabled: true, error: "hive unreachable or no data" };
+  },
+  get_hive_pool_consensus: async ({ pool_address }) => {
+    if (!hiveEnabled()) return { enabled: false };
+    if (!pool_address) return { error: "pool_address required" };
+    const data = await hivePoolConsensus(pool_address);
+    return data ?? { enabled: true, pool_address, note: "no consensus data for this pool" };
+  },
+  get_hive_lesson_consensus: async ({ tags } = {}) => {
+    if (!hiveEnabled()) return { enabled: false };
+    const data = await hiveLessonConsensus(tags);
+    return data ?? { enabled: true, tags: tags ?? null, note: "no lesson consensus returned" };
+  },
+  get_hive_pattern_consensus: async ({ volatility } = {}) => {
+    if (!hiveEnabled()) return { enabled: false };
+    const data = await hivePatternConsensus(volatility);
+    return data ?? { enabled: true, volatility: volatility ?? null, note: "no pattern consensus returned" };
+  },
+  get_hive_threshold_consensus: async () => {
+    if (!hiveEnabled()) return { enabled: false };
+    const data = await hiveThresholdConsensus();
+    if (!data) return { enabled: true, note: "hive unreachable or no threshold data" };
+    // Attach local diffs so the LLM can instantly see what's drifting
+    const local = {
+      minFeeActiveTvlRatio: config.screening.minFeeActiveTvlRatio,
+      minTvl: config.screening.minTvl,
+      maxTvl: config.screening.maxTvl,
+      minOrganic: config.screening.minOrganic,
+      minHolders: config.screening.minHolders,
+      minBinStep: config.screening.minBinStep,
+      maxBinStep: config.screening.maxBinStep,
+      minVolume: config.screening.minVolume,
+      minMcap: config.screening.minMcap,
+      stopLossPct: config.management.stopLossPct,
+      takeProfitFeePct: config.management.takeProfitFeePct,
+    };
+    return { hive_median: data, local };
+  },
   add_lesson: ({ rule, tags, pinned, role }) => {
     addLesson(rule, tags || [], { pinned: !!pinned, role: role || null });
     return { saved: true, rule, pinned: !!pinned, role: role || "all" };

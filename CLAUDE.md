@@ -197,9 +197,36 @@ const actualBaseFee = baseFactor > 0
 
 ## Hive Mind (hive-mind.js)
 
-Optional feature. Enabled by setting `HIVE_MIND_URL` and `HIVE_MIND_API_KEY` in `.env`.
-Syncs lessons/deploys to a shared server, queries consensus patterns.
-Not required for normal operation.
+Optional collective-intelligence layer. Enabled by registering once:
+
+```
+node -e "import('./hive-mind.js').then(m => m.register('https://your-hive-url','<registration-token>'))"
+```
+
+This writes `hiveMindUrl`, `hiveMindApiKey`, `hiveMindAgentId` into `user-config.json`. There are NO `.env` variables for hive — the old `HIVE_MIND_URL` / `HIVE_MIND_API_KEY` env vars are not read by the code.
+
+**Upload side**: `lessons.js` calls `syncToHive()` (debounced 5 min) after each `recordPerformance()` — pushes local lessons, deploys, thresholds, and `getPerformanceSummary()` to `/api/sync`.
+
+**Download side (auto-injected into SCREENER goal in `index.js`)**:
+- `getHivePulse()` → `[HIVE PULSE] N agents, X% win rate`
+- `queryThresholdConsensus()` → `[HIVE THRESHOLDS]` block listing only keys diverging ≥15% from local
+- `queryPatternConsensus(maxVol)` → `[HIVE PATTERNS]` — top 2 `bins_below` patterns for candidate volatility
+- `formatPoolConsensusForPrompt()` → `[HIVE] <pool>: N agents, X% win, ±Y%` (only pools with ≥3 agents)
+
+**Tools exposed to the LLM** (via `tools/definitions.js` + `tools/executor.js`):
+- `get_hive_pulse`, `get_hive_pool_consensus`, `get_hive_lesson_consensus`, `get_hive_pattern_consensus`, `get_hive_threshold_consensus`
+- All return `{ enabled: false }` when hive is not configured — safe no-ops.
+
+**Self-tuning**: SCREENER role has `update_config` + `set_active_strategy` in its tool set. Prompt authorizes nudging local thresholds toward hive medians ONLY when:
+  - hive pulse ≥ 5 agents
+  - divergence ≥ 15%
+  - local performance doesn't contradict
+  - move ≤ 25% of the gap per cycle
+  - Safety floors (`minTokenFeesSol`, `maxBotHoldersPct`, rugpull guards) are NEVER relaxed via hive pressure.
+
+**MANAGER role** has `get_hive_pool_consensus`, `get_hive_lesson_consensus`, `get_hive_pulse` — may consult collective data on borderline close/hold calls.
+
+Privacy: no wallet addresses or private keys are sent. Pool addresses (public on-chain), performance stats, and lessons only. Agent IDs are anonymous UUIDs.
 
 ---
 
@@ -215,9 +242,9 @@ Not required for normal operation.
 | `LLM_BASE_URL` | No | Override for local LLM (e.g. LM Studio) |
 | `LLM_MODEL` | No | Override default model |
 | `DRY_RUN` | No | Skip all on-chain transactions |
-| `HIVE_MIND_URL` | No | Collective intelligence server |
-| `HIVE_MIND_API_KEY` | No | Hive mind auth token |
 | `HELIUS_API_KEY` | No | Enhanced wallet balance data |
+
+(Hive mind is configured via `user-config.json` after running the registration one-liner — see "Hive Mind" section. It is not an env var.)
 
 ---
 

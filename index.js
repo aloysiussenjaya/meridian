@@ -16,6 +16,13 @@ import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
+import {
+  formatPoolConsensusForPrompt,
+  isEnabled as hiveEnabled,
+  getHivePulse,
+  queryThresholdConsensus,
+  queryPatternConsensus,
+} from "./hive-mind.js";
 
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
@@ -543,11 +550,69 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return block;
     });
 
+    // Hive mind context (opt-in, safe no-op when disabled)
+    let hiveBlock = "";
+    if (hiveEnabled()) {
+      try {
+        const maxVol = Math.max(0, ...passing.map(({ pool }) => Number(pool.volatility) || 0));
+        const [poolConsensus, pulse, thresholds, patterns] = await Promise.all([
+          formatPoolConsensusForPrompt(passing.map(({ pool }) => pool.pool)).catch(() => ""),
+          getHivePulse().catch(() => null),
+          queryThresholdConsensus().catch(() => null),
+          queryPatternConsensus(maxVol).catch(() => null),
+        ]);
+
+        const lines = [];
+        if (pulse && (pulse.active_agents ?? pulse.total_agents)) {
+          const agents = pulse.active_agents ?? pulse.total_agents;
+          const winRate = pulse.network_win_rate ?? pulse.win_rate;
+          lines.push(`[HIVE PULSE] ${agents} agents${winRate != null ? `, ${winRate}% network win rate` : ""}`);
+        }
+        if (thresholds && typeof thresholds === "object") {
+          const localKeys = {
+            minFeeActiveTvlRatio: config.screening.minFeeActiveTvlRatio,
+            minTvl: config.screening.minTvl,
+            minVolume: config.screening.minVolume,
+            minHolders: config.screening.minHolders,
+            minMcap: config.screening.minMcap,
+            stopLossPct: config.management.stopLossPct,
+          };
+          const diffs = [];
+          for (const [k, localVal] of Object.entries(localKeys)) {
+            const hiveVal = thresholds[k];
+            if (hiveVal == null || localVal == null) continue;
+            const delta = hiveVal - localVal;
+            const pctDrift = localVal !== 0 ? Math.abs(delta / localVal) : 0;
+            if (pctDrift >= 0.15) {
+              diffs.push(`${k}: local=${localVal} hive=${hiveVal}`);
+            }
+          }
+          if (diffs.length) lines.push(`[HIVE THRESHOLDS — diverging ≥15%] ${diffs.join(" | ")}`);
+        }
+        if (Array.isArray(patterns) && patterns.length > 0) {
+          const top = patterns.slice(0, 2).map(p => {
+            const bb = p.bins_below ?? p.binsBelow;
+            const win = p.win_rate != null ? `${p.win_rate}%` : "?";
+            const avg = p.avg_pnl != null ? `${p.avg_pnl >= 0 ? "+" : ""}${p.avg_pnl}%` : "?";
+            return `bins_below=${bb} → ${win} win, ${avg} avg (n=${p.sample_size ?? p.n ?? "?"})`;
+          }).join(" | ");
+          lines.push(`[HIVE PATTERNS @ vol≈${maxVol}] ${top}`);
+        }
+        if (poolConsensus) lines.push(poolConsensus);
+
+        if (lines.length > 0) {
+          hiveBlock = `\n═══ HIVE MIND CONTEXT (supplementary — your own analysis takes priority) ═══\n${lines.join("\n")}\nIf HIVE THRESHOLDS show divergence AND pulse shows ≥ 5 agents, you MAY call update_config to nudge local thresholds toward hive medians (small steps, with a clear reason).\n`;
+        }
+      } catch (e) {
+        log("hive", `context fetch failed: ${e.message}`);
+      }
+    }
+
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
 Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)} | Deploy: ${deployAmount} SOL
-
+${hiveBlock}
 PRE-LOADED CANDIDATES (${passing.length} pools):
 ${candidateBlocks.join("\n\n")}
 
